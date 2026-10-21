@@ -35,3 +35,23 @@ export const createUrl = async (
     next(error);
   }
 };
+
+export const redirectToUrl = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+): Promise<void> => {
+  try {
+    const { slug } = req.params;
+  
+    const dbSlug = await URLModel.findOne({ slug });
+    if (!dbSlug) {
+      res.status(404).json({ err: "Slug not found" });
+      return;
+    }
+  
+    res.redirect(dbSlug.url);
+  } catch (error) {
+    next(error)
+  }
+};
