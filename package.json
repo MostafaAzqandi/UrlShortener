@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "tsx watch app.ts",
     "start": "tsx app.ts",
+    "build": "tsc",
+    "start:prod": "node dist/app.js",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],
