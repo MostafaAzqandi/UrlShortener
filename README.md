@@ -17,6 +17,7 @@ Beyond the core shortening flow, the service is built to production standards:
 - **Strict TypeScript** across the entire codebase (`strict: true`, no implicit `any`)
 - **Structured logging** with pino — pretty in development, JSON in production
 - **A single, uniform error envelope** (`{ "err": "..." }`) for every failure the API can return
+- **Per-IP rate limiting** with standard `RateLimit` headers, blocking at the middleware layer before any controller runs
 - **Graceful shutdown** that drains in-flight requests and closes MongoDB cleanly on `SIGINT`/`SIGTERM` and on crash paths
 - **A real build pipeline** — `tsc` to plain JavaScript, runs on vanilla `node`, no runtime transpiler in production
 
@@ -29,6 +30,7 @@ Beyond the core shortening flow, the service is built to production standards:
 | Framework  | Express 5                      |
 | Database   | MongoDB via Mongoose 9         |
 | Logging    | pino 10 + pino-pretty (dev)    |
+| Rate limiting | express-rate-limit 8        |
 | Transpiler | tsx (development only)         |
 
 ## Quick Start
@@ -56,6 +58,10 @@ BASE_URL=http://localhost:6066
 MONGO_URI=mongodb://localhost:27017/urlshortener-service-dev
 LOG_LEVEL=info
 
+# Optional — rate limiting overrides (defaults: 100 requests / 15 minutes)
+# RATE_LIMIT_MAX=100
+# RATE_LIMIT_WINDOW_MS=900000
+
 # Optional — enables JSON logs and 500-message redaction
 # NODE_ENV=production
 ```
@@ -66,6 +72,8 @@ LOG_LEVEL=info
 | `BASE_URL`  | Prefix for generated short links                    | Yes      |
 | `MONGO_URI` | MongoDB connection string (fails fast if missing)   | Yes      |
 | `LOG_LEVEL` | pino level (`fatal`/`error`/`warn`/`info`/`debug`)  | No       |
+| `RATE_LIMIT_MAX` | Requests allowed per window (default `100`)    | No       |
+| `RATE_LIMIT_WINDOW_MS` | Rate-limit window in ms (default `900000`) | No       |
 | `NODE_ENV`  | Set to `production` for JSON logs and error hiding  | No       |
 
 ### Run
@@ -147,9 +155,18 @@ Every failure — validation, routing, or crash — returns the same envelope:
 | Non-HTTP(S) protocol (e.g. `javascript:`) | 400 | `Only http and https URLs are allowed` |
 | Unknown slug                    | 404    | `Slug not found`                             |
 | Unknown route                   | 404    | `Route not found`                            |
+| Rate limit exceeded             | 429    | `Too many requests - try again later`        |
 | Unexpected server error         | 500    | `Internal server error` (original message only shown outside production) |
 
 URL validation is applied **twice by design**: in the controller (fast client feedback, before touching the database) and again in the Mongoose schema validator (the persistence layer's own guarantee).
+
+### Rate Limiting
+
+Every request except `GET /health` (kept free for load balancers) passes through a per-IP fixed-window limiter:
+
+- Limits are configurable via `RATE_LIMIT_MAX` and `RATE_LIMIT_WINDOW_MS`
+- Allowed and blocked responses carry standard `RateLimit-Limit` / `RateLimit-Remaining` / `RateLimit-Reset` headers, plus `Retry-After` on 429s
+- Blocked requests get the uniform `{ "err": "..." }` envelope and a structured `WARN` log with the offending IP
 
 ## Error Handling
 
@@ -183,6 +200,7 @@ The shutdown sequence is fully logged (`signal → closing → idle closed → d
 │   ├── database.ts           # Mongo connection + lifecycle event logging
 │   ├── errors.ts             # Central error middleware
 │   ├── logger.ts             # pino setup (pretty in dev, JSON in prod)
+│   ├── rate.ts               # Per-IP rate limiter (express-rate-limit)
 │   └── shutdown.ts           # Graceful shutdown: drain + force-exit timer
 ├── controllers/
 │   └── URLController.ts      # createUrl, redirectToUrl
@@ -204,7 +222,6 @@ The shutdown sequence is fully logged (`signal → closing → idle closed → d
 ## Roadmap
 
 - Click counter per slug and a `GET /stats/:slug` endpoint
-- Rate limiting on `POST /shorten`
 - Retry-on-collision for slug generation
 - Automated test suite
 
