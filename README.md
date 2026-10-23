@@ -41,7 +41,7 @@ Beyond the core shortening flow, the service is built to production standards:
 ### Installation
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/MostafaAzqandi/UrlShortener
 cd urlshortener
 npm install
 ```
